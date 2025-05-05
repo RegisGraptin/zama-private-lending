@@ -26,9 +26,8 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
     // Track user balance
 
     //  balances --> available
-    // lending
-    mapping(address account => euint256 balance) internal _availableBalance; // Waiting balance
-    mapping(address account => euint256 balance) internal _lendingBalance; // Balance in lending
+    // mapping(address account => euint256 balance) internal _availableBalance; // Waiting balance
+    mapping(address account => euint64 balance) internal _lendingBalances; // Balance in lending
 
     /// @notice Address of the AAVE Pool Address Provider allowing us to fetch the pool address
     address public immutable POOL_ADDRESSES_PROVIDER_ADDRESS;
@@ -50,58 +49,58 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
         TFHE.allowThis(nextRoundAction);
     }
 
-    function deposit(uint256 amount) external {
-        ERC20_TOKEN.safeTransferFrom(msg.sender, address(this), amount);
-
-        // Increase user available balance
-        euint256 newAvailableBalance = _availableBalance[msg.sender] + TFHE.asEuint256(amount);
-        _availableBalance[msg.sender] = newAvailableBalance;
-
-        // Authorize access
-        TFHE.allowThis(newAvailableBalance);
-        TFHE.allow(newAvailableBalance, msg.sender);
-    }
-
-    function withdraw(uint256 amount) external {
-        // Verify the user has enough funds
-        euint256 eAmount = TFHE.asEuint256(amount);
-        ebool canWithdraw = TFHE.le(eAmount, _availableBalance[msg.sender]);
-        euint256 transferValue = TFHE.select(canWithdraw, eAmount, TFHE.asEuint256(0));
-
-        // Call the gateway to decrypt and transfer the value
-
-        uint256[] memory cts = new uint256[](1);
-        cts[0] = Gateway.toUint256(eAmount);
-        uint256 requestId = Gateway.requestDecryption(
-            cts,
-            this.gatewayCallbackDecryptBid.selector,
-            0,
-            block.timestamp + 100,
-            false
-        );
-    }
+    // wrap / unwrap manage that
 
     function lendToAave(einput eRequestedAmount, bytes calldata inputProof) external {
-        euint256 eAmount = TFHE.asEuint256(eRequestedAmount, inputProof);
+        euint64 eAmount = TFHE.asEuint64(eRequestedAmount, inputProof);
 
         // Verify enough funds
-        ebool canTransfer = TFHE.le(amount, _balances[msg.sender]);
+        ebool isTransferable = TFHE.le(eAmount, _balances[msg.sender]);
+        euint64 transferValue = TFHE.select(isTransferable, eAmount, TFHE.asEuint64(0));
 
-        euint256 newBalanceAccount = TFHE.add(_lending[msg.sender], eAmount);
-        _lending[msg.sender] = newBalanceAccount;
+        // Update the user balance
+        euint64 newBalance = TFHE.sub(_balances[msg.sender], transferValue);
+        _balances[msg.sender] = newBalance;
+        TFHE.allowThis(newBalance);
+        TFHE.allow(newBalance, msg.sender);
 
-        TFHE.allowThis(newBalanceAccount);
-        TFHE.allow(newBalanceAccount, msg.sender);
+        // Update lending balance
+        euint64 newLending = TFHE.add(_lendingBalances[msg.sender], transferValue);
+        _lendingBalances[msg.sender] = newLending;
+        TFHE.allowThis(newLending);
+        TFHE.allow(newLending, msg.sender);
+
+        // Update round state
+        TFHE.add(nextRoundAction, transferValue);
+
+        // TODO: Should I keep track user round for reward?
     }
 
     function withdrawFromAave(einput eRequestedAmount, bytes calldata inputProof) external {
-        euint256 eAmount = TFHE.asEuint256(eRequestedAmount, inputProof);
+        euint64 eAmount = TFHE.asEuint64(eRequestedAmount, inputProof);
 
-        euint256 newBalanceAccount = TFHE.sub(_lending[msg.sender], eAmount);
-        _lending[msg.sender] = newBalanceAccount;
+        // Verify enough funds
+        ebool isTransferable = TFHE.le(eAmount, _lendingBalances[msg.sender]);
+        euint64 transferValue = TFHE.select(isTransferable, eAmount, TFHE.asEuint64(0));
 
-        TFHE.allowThis(newBalanceAccount);
-        TFHE.allow(newBalanceAccount, msg.sender);
+        // Update lending balance
+        euint64 newLending = TFHE.sub(_lendingBalances[msg.sender], transferValue);
+        _lendingBalances[msg.sender] = newLending;
+        TFHE.allowThis(newLending);
+        TFHE.allow(newLending, msg.sender);
+
+        // Update the user balance
+        euint64 newBalance = TFHE.add(_balances[msg.sender], transferValue);
+        _balances[msg.sender] = newBalance;
+        TFHE.allowThis(newBalance);
+        TFHE.allow(newBalance, msg.sender);
+
+        // Update round state
+        TFHE.sub(nextRoundAction, transferValue);
+
+        // TODO: Need to keep track user round reward
+
+        // Create function for user to see all reward
     }
 
     function executeRound(uint256 requestId, uint256 lendingAmout) external onlyGateway {
