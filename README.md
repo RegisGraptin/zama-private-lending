@@ -1,1 +1,3 @@
-# zama-private-lending
+# Confidential layer for lending protocol
+
+
