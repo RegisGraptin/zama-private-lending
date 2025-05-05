@@ -15,8 +15,7 @@ import { IPool } from "@aave-v3-core/contracts/protocol/pool/Pool.sol";
 import { IPoolAddressesProvider } from "@aave-v3-core/contracts/protocol/configuration/PoolAddressesProvider.sol";
 
 /// @notice FIXME:
-/// @dev FIXME:
-/// @dev FIXME:
+/// we want to obfuscate the amount, not the user behaviour
 contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
     using SafeERC20 for IERC20Metadata;
 
@@ -28,36 +27,37 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
     // value > INT64_OFFSET represent a supply action
     uint64 constant INT64_OFFSET = 2 ** 63;
 
-    /// @notice ERC20 assets used in lending
+    /// @notice ERC20 assets used in lending.
     address asset;
     address aAsset;
 
-    euint256 nextRoundAction;
+    /// @notice Index of the current round.
+    uint256 currentRound;
 
-    uint256 lastActionTime;
+    /// @notice Net liquidity change (supply/withdraw) scheduled for the next round.
+    euint256 nextRoundDelta;
 
-    // Variable used to compute rewards
-    uint256 public globalRewardIndex;
+    /// @notice Cumulative reward index to tracks global rewards per unit of principal over time.
+    mapping(uint256 round => uint256 globalReward) internal _globalRewards;
+
+    /// @notice Last round timestamps.
     uint256 public lastUpdateTime;
 
-    /// @notice Defined the total amount currently lended in the protocol
+    /// @notice Defined the total amount currently lended in the protocol.
     uint256 totalLendedAmount;
 
-    // Track user balance
-    struct UserInfo {
-        uint256 principal;
-        uint256 rewardIndex;
-        uint256 accruedRewards;
-    }
-    mapping(address => UserInfo) public users;
-
-    //  balances --> available
-    // mapping(address account => euint256 balance) internal _availableBalance; // Waiting balance
-    mapping(address account => euint64 balance) internal _lendingBalances; // Balance in lending
+    /// @notice User balance active in lending.
+    mapping(address account => euint64 balance) internal _lendingBalances;
 
     mapping(address account => uint256 index) internal _userIndex;
 
-    mapping(address account => bool locked) internal lockedLiquidity;
+    /// @notice Track the user next round balance
+    mapping(address account => uint256 lastRound) internal _userLastUpdatedRound;
+    mapping(address account => euint64 balance) internal _userNextRoundDeposit;
+    mapping(address account => euint64 balance) internal _userNextRoundWithdrawal;
+
+    // FIXME: is it needed ? On withdraw ?
+    // mapping(address account => bool locked) internal lockedLiquidity;
 
     /// @notice Address of the AAVE Pool Address Provider allowing us to fetch the pool address
     address public immutable POOL_ADDRESSES_PROVIDER_ADDRESS;
@@ -76,18 +76,12 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
         aAsset = IPool(_aavePoolAddress()).getReserveData(asset).aTokenAddress;
 
         // Negative number not managed
-        nextRoundAction = TFHE.asEuint256(INT64_OFFSET);
-        TFHE.allowThis(nextRoundAction);
+        nextRoundDelta = TFHE.asEuint256(INT64_OFFSET);
+        TFHE.allowThis(nextRoundDelta);
     }
 
-    function updateUser(address user) internal {
-        // uint256 deltaIndex = (newReward * 1e18) / totalSupply;
-
-        UserInfo storage u = users[user];
-
-        // euint64 deltaIndex = TFHE.sub(globalRewardIndex, _userIndex[msg.sender]);
-
-        uint256 deltaIndex = globalRewardIndex - _userIndex[msg.sender];
+    function _updateUserRound(address user, uint256 roundId) internal {
+        uint256 deltaIndex = _globalRewards[roundId] - _userIndex[user];
         if (deltaIndex > 0) {
             euint64 userPrincipal = _lendingBalances[user];
 
@@ -96,15 +90,39 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
             euint64 newBalance = TFHE.add(_lendingBalances[user], reward);
             _lendingBalances[user] = newBalance;
             TFHE.allowThis(newBalance);
-            TFHE.allow(newBalance, msg.sender);
+            TFHE.allow(newBalance, user);
 
-            _userIndex[msg.sender] = globalRewardIndex;
-
-            // FIXME: Is needed ??
-            // Update global totalDeposits too
-            // totalDeposits += reward;
+            _userIndex[user] = _globalRewards[roundId];
         }
     }
+
+    function updateUser(address user) internal {
+        // uint256 deltaIndex = (newReward * 1e18) / totalSupply;
+
+        // Lazy update on lending position
+        if (_userLastUpdatedRound[user] < currentRound) {
+            // Compute previous reward of the last user round
+            _updateUserRound(user, _userLastUpdatedRound[user]);
+
+            // Update lending state
+
+            // Apply deposit
+            _lendingBalances[user] = TFHE.add(_lendingBalances[user], _userNextRoundDeposit[user]);
+            _userNextRoundDeposit[user] = TFHE.asEuint64(0);
+
+            // Apply withdrawal
+            _lendingBalances[user] = TFHE.sub(_lendingBalances[user], _userNextRoundWithdrawal[user]);
+            _userNextRoundWithdrawal[user] = TFHE.asEuint64(0);
+
+            _userLastUpdatedRound[user] = currentRound;
+        }
+
+        _updateUserRound(user, currentRound);
+    }
+
+    // FIXME: Is needed ??
+    // Update global totalDeposits too
+    // totalDeposits += reward;
 
     // FIXME:
     // updateUser(msg.sender);
@@ -114,7 +132,8 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
     // lend - block timestamps
 
     function lendToAave(einput eRequestedAmount, bytes calldata inputProof) external {
-        require(!lockedLiquidity[msg.sender], "LOCKED_LIQUIDITY");
+        // FIXME: the lending is not effective now
+        // It will be on the next round
 
         // Update user reward
         updateUser(msg.sender);
@@ -138,14 +157,13 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
         TFHE.allow(newLending, msg.sender);
 
         // Update round state
-        TFHE.add(nextRoundAction, transferValue);
+        nextRoundDelta = TFHE.add(nextRoundDelta, transferValue);
+        TFHE.allowThis(nextRoundDelta);
 
         // TODO: Should I keep track user round for reward?
     }
 
     function withdrawFromAave(einput eRequestedAmount, bytes calldata inputProof) external {
-        require(!lockedLiquidity[msg.sender], "LOCKED_LIQUIDITY");
-
         // Update user reward
         updateUser(msg.sender);
 
@@ -168,34 +186,36 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
         TFHE.allow(newBalance, msg.sender);
 
         // Update round state
-        TFHE.sub(nextRoundAction, transferValue);
+        nextRoundDelta = TFHE.sub(nextRoundDelta, transferValue);
+        TFHE.allowThis(nextRoundDelta);
 
         // TODO: Need to keep track user round reward
-
-        // Create function for user to see all reward
     }
 
     function callNextRound() external {
-        require(block.timestamp > lastActionTime + 30 minutes, "NOT_ENOUGH_TIME");
+        require(block.timestamp > lastUpdateTime + 30 minutes, "NOT_ENOUGH_TIME");
 
+        // Update the lending position of the protocol
+        uint256[] memory cts = new uint256[](1);
+        cts[0] = Gateway.toUint256(nextRoundDelta);
+        uint256 requestId = Gateway.requestDecryption(cts, this.executeRound.selector, 0, block.timestamp + 100, false);
+    }
+
+    function executeRound(uint256 requestId, uint256 lendingAmout) external onlyGateway {
         // Compute and assigned all the rewards
-        // FIXME: _asset need to update
+
         uint256 newReward = IERC20(aAsset).balanceOf(address(this)) - totalLendedAmount;
 
         uint256 deltaIndex = (newReward * PRECISION_FACTOR) / totalLendedAmount;
-        globalRewardIndex += deltaIndex;
+
+        currentRound++;
+        _globalRewards[currentRound] = _globalRewards[currentRound - 1] + deltaIndex;
+
         lastUpdateTime = block.timestamp;
 
         // Rewards are compound so we need to update the balance
         totalLendedAmount = IERC20(aAsset).balanceOf(address(this));
 
-        // Update the lending position of the protocol
-        uint256[] memory cts = new uint256[](1);
-        cts[0] = Gateway.toUint256(nextRoundAction);
-        uint256 requestId = Gateway.requestDecryption(cts, this.executeRound.selector, 0, block.timestamp + 100, false);
-    }
-
-    function executeRound(uint256 requestId, uint256 lendingAmout) external onlyGateway {
         if (lendingAmout > INT64_OFFSET) {
             // Lending action
             _aaveSupply(lendingAmout - INT64_OFFSET);
