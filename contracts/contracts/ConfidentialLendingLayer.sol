@@ -96,9 +96,8 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
         }
     }
 
+    // FIXME: set to public ??
     function updateUser(address user) internal {
-        // uint256 deltaIndex = (newReward * 1e18) / totalSupply;
-
         // Lazy update on lending position
         if (_userLastUpdatedRound[user] < currentRound) {
             // Compute previous reward of the last user round
@@ -110,9 +109,17 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
             _lendingBalances[user] = TFHE.add(_lendingBalances[user], _userNextRoundDeposit[user]);
             _userNextRoundDeposit[user] = TFHE.asEuint64(0);
 
-            // Apply withdrawal
+            // Apply withdrawal & Update user balance
             _lendingBalances[user] = TFHE.sub(_lendingBalances[user], _userNextRoundWithdrawal[user]);
+
+            euint64 newBalance = TFHE.add(_balances[user], _userNextRoundWithdrawal[user]);
+            _balances[user] = newBalance;
+            TFHE.allowThis(newBalance);
+            TFHE.allow(newBalance, user);
+
             _userNextRoundWithdrawal[user] = TFHE.asEuint64(0);
+
+            // FIXME: Do I need to provide other authorization for new compute ??
 
             _userLastUpdatedRound[user] = currentRound;
         }
@@ -150,11 +157,11 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
         TFHE.allowThis(newBalance);
         TFHE.allow(newBalance, msg.sender);
 
-        // Update lending balance
-        euint64 newLending = TFHE.add(_lendingBalances[msg.sender], transferValue);
-        _lendingBalances[msg.sender] = newLending;
-        TFHE.allowThis(newLending);
-        TFHE.allow(newLending, msg.sender);
+        // Update user deposit
+        euint64 newDeposit = TFHE.add(_userNextRoundDeposit[msg.sender], transferValue);
+        _userNextRoundDeposit[msg.sender] = newDeposit;
+        TFHE.allowThis(newDeposit);
+        TFHE.allow(newDeposit, msg.sender);
 
         // Update round state
         nextRoundDelta = TFHE.add(nextRoundDelta, transferValue);
@@ -173,23 +180,17 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
         ebool isTransferable = TFHE.le(eAmount, _lendingBalances[msg.sender]);
         euint64 transferValue = TFHE.select(isTransferable, eAmount, TFHE.asEuint64(0));
 
-        // Update lending balance
-        euint64 newLending = TFHE.sub(_lendingBalances[msg.sender], transferValue);
-        _lendingBalances[msg.sender] = newLending;
-        TFHE.allowThis(newLending);
-        TFHE.allow(newLending, msg.sender);
-
-        // Update the user balance
-        euint64 newBalance = TFHE.add(_balances[msg.sender], transferValue);
-        _balances[msg.sender] = newBalance;
-        TFHE.allowThis(newBalance);
-        TFHE.allow(newBalance, msg.sender);
+        // Update withdrawal
+        euint64 newWithdrawal = TFHE.add(_userNextRoundWithdrawal[msg.sender], transferValue);
+        _userNextRoundWithdrawal[msg.sender] = newWithdrawal;
+        TFHE.allowThis(newWithdrawal);
+        TFHE.allow(newWithdrawal, msg.sender);
 
         // Update round state
         nextRoundDelta = TFHE.sub(nextRoundDelta, transferValue);
         TFHE.allowThis(nextRoundDelta);
 
-        // TODO: Need to keep track user round reward
+        // FIXME: add a limitation here as the user can withdra directly the funds
     }
 
     function callNextRound() external {
@@ -222,6 +223,10 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
         } else {
             _aaveWithdraw(INT64_OFFSET - lendingAmout);
         }
+
+        // Reset value for next round
+        nextRoundDelta = TFHE.asEuint256(INT64_OFFSET);
+        TFHE.allowThis(nextRoundDelta);
     }
 
     //// Gateway callback
