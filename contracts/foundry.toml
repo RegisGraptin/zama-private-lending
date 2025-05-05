@@ -1,0 +1,10 @@
+[profile.default]
+src = 'contracts'
+out = 'out'
+libs = ['node_modules', 'lib']
+test = 'test'
+cache_path  = 'cache_forge'
+
+remappings = [
+    "@aave-v3-core/contracts/=node_modules/@aave-dao/aave-v3-origin/src/contracts/"
+]
