@@ -98,6 +98,7 @@
   "dependencies": {
     "@aave-dao/aave-v3-origin": "^3.3.0",
     "@openzeppelin/contracts": "^5.0.2",
+    "bigint-buffer": "^1.1.5",
     "hardhat-dependency-compiler": "^1.2.1"
   }
 }

@@ -1,2 +1,6 @@
 onlyBuiltDependencies:
+  - bigint-buffer
   - esbuild
+  - keccak
+  - secp256k1
+  - sqlite3
