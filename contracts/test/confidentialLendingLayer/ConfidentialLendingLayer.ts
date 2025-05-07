@@ -60,4 +60,36 @@ describe("ConfidentialERC20", function () {
     // Our contract should have the aUSDC
     expect(await this.aave.balanceOf(await this.contractAddress)).to.be.eq(500_000);
   });
+
+  it("should supply aggregated usdc to AAVE", async function () {
+    const users = [
+      [this.signers.bob, 500_000],
+      [this.signers.carol, 400_000],
+      [this.signers.dave, 300_000],
+    ];
+
+    for (let index = 0; index < users.length; index++) {
+      const [signer, amount] = users[index];
+
+      const userAddress = await signer.getAddress();
+      await this.usdc.connect(signer).mint(userAddress, amount);
+
+      await this.usdc.connect(signer).approve(this.contractAddress, amount);
+      await this.contract.connect(signer).wrap(amount);
+
+      const input = this.fhevm.createEncryptedInput(this.contractAddress, userAddress);
+      const inputs = await input.add64(amount).encrypt();
+
+      await this.contract.connect(signer).lendToAave(inputs.handles[0], inputs.inputProof);
+    }
+
+    await this.contract.callNextRound();
+    await awaitAllDecryptionResults();
+
+    // Check balance
+    const totalAmount = users.reduce((sum, [, amount]) => sum + amount, 0);
+    expect(await this.usdc.balanceOf(await this.contractAddress)).to.be.eq(0);
+    expect(await this.usdc.balanceOf(await this.aave.getAddress())).to.be.eq(totalAmount);
+    expect(await this.aave.balanceOf(await this.contractAddress)).to.be.eq(totalAmount);
+  });
 });
