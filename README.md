@@ -24,8 +24,6 @@ To unwrap the tokens, the user must ensure there are sufficient available funds 
 
 ![User Workflow](./workflow.png)
 
-Well / Not Well / More time
-
 ## Protocol Limitations
 
 In our current design, we have use a timestamp to wait enough operation. However, it would be maybe more interesting to wait a number of operations and a number of time.
@@ -38,22 +36,17 @@ In our current design, we have use a timestamp to wait enough operation. However
 
 - At the moment, our protocol can handle only one ERC20 at a time. One improvment could be to integrate a ERC-1155 approach, allowing multiple token representation.
 
-## Well / Not Well
+## Highlights
 
-TODO:
+- Leverage existing solution as `ConfidentialERC20Wrapped`
+- Working protocol with some tests given the time available.
+- Fonctional frontend for wrap/unwrap and lending action.
 
-- How to compute efficiently the lending reward.
-  > tracking individual user positions and interest accrual while preserving amount confidentiality.
+## Difficulties
 
-In order to handle lending we are going to rely on snapshot.
-
-On each round, we are going to update the lending position of the protocol while computing the reward for the other users
-
-# Improvment
-
-- Could have created a dedicated ERC20 for the aWrapToken lended.
-
-Forking the aave configuration and customize all of this. With the current template, I do not have too much time to manage all.
+- Need more time to think about potential attacks or protocol flow.
+- More tests would be appreciated, especially on the reward distribution to check if we did not miss corner cases.
+- Would be interesting to have a fork test from AAVE and not mock contracts.
 
 # How to use it
 
@@ -116,4 +109,8 @@ Then, you can run it locally by using
 pnpm dev
 ```
 
-0x2446c51E4c4B71bA2897a612d640e6EB57061568
+## Deployed contract
+
+Deployed `ConfidentialLendingLayer` contract at `0x2446c51E4c4B71bA2897a612d640e6EB57061568`.
+
+> For testing, you can request USDC from AAVE faucet on sepolia.
