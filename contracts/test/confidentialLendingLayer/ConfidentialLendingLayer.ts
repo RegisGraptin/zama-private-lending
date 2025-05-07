@@ -8,7 +8,7 @@ import { getSigners, initSigners } from "../signers";
 import { debug } from "../utils";
 import { deployConfidentialLendingLayer } from "./ConfidentialLendingLayer.fixture";
 
-describe("ConfidentialERC20", function () {
+describe("ConfidentialLendingLayer", function () {
   before(async function () {
     await initSigners();
     this.signers = await getSigners();

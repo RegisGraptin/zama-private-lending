@@ -9,17 +9,14 @@ import { SepoliaZamaFHEVMConfig } from "fhevm/config/ZamaFHEVMConfig.sol";
 import { SepoliaZamaGatewayConfig } from "fhevm/config/ZamaGatewayConfig.sol";
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
 import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import { IPool } from "@aave-v3-core/contracts/protocol/pool/Pool.sol";
-import { IPoolAddressesProvider } from "@aave-v3-core/contracts/protocol/configuration/PoolAddressesProvider.sol";
 
 import "hardhat/console.sol";
 
-/// @notice FIXME:
-/// we want to obfuscate the amount, not the user behaviour
+/// @notice Confidential Lending Layer designed to obfuscate user lending amount.
 contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, ConfidentialERC20Wrapped {
     using SafeERC20 for IERC20Metadata;
 
@@ -31,6 +28,9 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
     // value > INT64_OFFSET represent a supply action
     uint64 constant INT64_OFFSET = 2 ** 63;
 
+    /// @notice Address of the AAVE Pool Address
+    address public immutable AAVE_POOL_ADDRESS;
+
     /// @notice ERC20 assets used in lending.
     address asset;
     address aAsset;
@@ -39,6 +39,7 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
     uint256 currentRound;
 
     /// @notice Net liquidity change (supply/withdraw) scheduled for the next round.
+    /// Scaled to INT64_OFFSET to handle supply or withdraw operation.
     euint256 nextRoundDelta;
 
     /// @notice Cumulative reward index to tracks global rewards per unit of principal over time.
@@ -53,6 +54,7 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
     /// @notice User balance active in lending.
     mapping(address account => euint64 balance) internal _lendingBalances;
 
+    /// @notice User reward index to compute lending reward.
     mapping(address account => uint256 index) internal _userIndex;
 
     /// @notice Track the user next round balance
@@ -60,11 +62,12 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
     mapping(address account => euint64 balance) internal _userNextRoundDeposit;
     mapping(address account => euint64 balance) internal _userNextRoundWithdrawal;
 
-    // FIXME: is it needed ? On withdraw ?
-    // mapping(address account => bool locked) internal lockedLiquidity;
+    /// @notice Events to monitor liquidity movement to AAVE
+    event LiquiditySupplied(uint256 amount);
+    event LiquidityWithdrawn(uint256 amount);
 
-    /// @notice Address of the AAVE Pool Address Provider allowing us to fetch the pool address
-    address public immutable AAVE_POOL_ADDRESS;
+    /// @notice Between each round, we need to wait allowing us to have time to aggregate multiple user transactions.
+    error TooEarlyForNextRound();
 
     constructor(
         address _aavePoolAddress,
@@ -76,7 +79,7 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
         asset = erc20_;
         aAsset = aErc20_;
 
-        // Negative number not managed
+        // Scaled as negative number not managed
         nextRoundDelta = TFHE.asEuint256(INT64_OFFSET);
         TFHE.allowThis(nextRoundDelta);
     }
@@ -84,11 +87,11 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
     function _updateUserRound(address user, uint256 roundId) internal {
         uint256 deltaIndex = _globalRewards[roundId] - _userIndex[user];
         if (deltaIndex > 0) {
-            console.log("Delta computation");
+            // Compute the reward using user contribution
             euint64 userPrincipal = _lendingBalances[user];
-
             euint64 reward = TFHE.div(TFHE.mul(userPrincipal, TFHE.asEuint64(deltaIndex)), PRECISION_FACTOR);
 
+            // Update user balance
             euint64 newBalance = TFHE.add(_lendingBalances[user], reward);
             _lendingBalances[user] = newBalance;
             TFHE.allowThis(newBalance);
@@ -98,21 +101,18 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
         }
     }
 
-    // FIXME: set to public ??
     function updateUser(address user) internal {
         // Lazy update on lending position
         if (_userLastUpdatedRound[user] < currentRound) {
-            console.log("Lazy update");
             // Compute previous reward of the last user round
+            // In case of previous withdraw, we want to make sure to have the last remanining reward
             _updateUserRound(user, _userLastUpdatedRound[user]);
 
-            // Update lending state
-
-            // Apply deposit
+            /// Update lending state - Apply deposit
             _lendingBalances[user] = TFHE.add(_lendingBalances[user], _userNextRoundDeposit[user]);
             _userNextRoundDeposit[user] = TFHE.asEuint64(0);
 
-            // Apply withdrawal & Update user balance
+            // Apply withdrawal & update user balance
             _lendingBalances[user] = TFHE.sub(_lendingBalances[user], _userNextRoundWithdrawal[user]);
 
             euint64 newBalance = TFHE.add(_balances[user], _userNextRoundWithdrawal[user]);
@@ -122,24 +122,12 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
 
             _userNextRoundWithdrawal[user] = TFHE.asEuint64(0);
 
-            // FIXME: Do I need to provide other authorization for new compute ??
-
+            // Update round index
             _userLastUpdatedRound[user] = currentRound;
         }
 
         _updateUserRound(user, currentRound);
     }
-
-    // FIXME: Is needed ??
-    // Update global totalDeposits too
-    // totalDeposits += reward;
-
-    // FIXME:
-    // updateUser(msg.sender);
-
-    // wrap / unwrap manage that
-
-    // lend - block timestamps
 
     function lendToAave(einput eRequestedAmount, bytes calldata inputProof) external {
         updateUser(msg.sender); // Update user reward
@@ -165,13 +153,10 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
         // Update round state
         nextRoundDelta = TFHE.add(nextRoundDelta, transferValue);
         TFHE.allowThis(nextRoundDelta);
-
-        // TODO: Should I keep track user round for reward?
     }
 
     function withdrawFromAave(einput eRequestedAmount, bytes calldata inputProof) external {
-        // Update user reward
-        updateUser(msg.sender);
+        updateUser(msg.sender); // Update user reward
 
         euint64 eAmount = TFHE.asEuint64(eRequestedAmount, inputProof);
 
@@ -188,39 +173,38 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
         // Update round state
         nextRoundDelta = TFHE.sub(nextRoundDelta, transferValue);
         TFHE.allowThis(nextRoundDelta);
-
-        // FIXME: add a limitation here as the user can withdra directly the funds
     }
 
     function callNextRound() external {
-        require(block.timestamp > lastUpdateTime + 30 minutes, "NOT_ENOUGH_TIME");
+        if (block.timestamp <= lastUpdateTime + 30 minutes) {
+            revert TooEarlyForNextRound();
+        }
+
+        lastUpdateTime = block.timestamp;
 
         // Update the lending position of the protocol
         uint256[] memory cts = new uint256[](1);
         cts[0] = Gateway.toUint256(nextRoundDelta);
-        uint256 requestId = Gateway.requestDecryption(cts, this.executeRound.selector, 0, block.timestamp + 100, false);
+        Gateway.requestDecryption(cts, this.executeRound.selector, 0, block.timestamp + 100, false);
     }
 
-    function executeRound(uint256 requestId, uint256 roundAmount) external onlyGateway {
+    function executeRound(uint256 /* requestId */, uint256 roundAmount) external onlyGateway {
         // Compute and assigned all the rewards
-
         uint256 newReward = IERC20(aAsset).balanceOf(address(this)) - totalLendedAmount;
-
         uint256 deltaIndex = 0;
         if (totalLendedAmount > 0) {
             deltaIndex = (newReward * PRECISION_FACTOR) / totalLendedAmount;
         }
 
+        // Update the round
         currentRound++;
         _globalRewards[currentRound] = _globalRewards[currentRound - 1] + deltaIndex;
 
-        lastUpdateTime = block.timestamp;
-
-        // Rewards are compound so we need to update the balance
+        // Rewards are compound so we need to update the lended amount
         totalLendedAmount = IERC20(aAsset).balanceOf(address(this));
 
+        // Apply the net round operation
         if (roundAmount > INT64_OFFSET) {
-            // Lending action
             _aaveSupply(roundAmount - INT64_OFFSET);
         } else {
             _aaveWithdraw(INT64_OFFSET - roundAmount);
@@ -237,14 +221,12 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
         totalLendedAmount += amount;
         IERC20(asset).approve(AAVE_POOL_ADDRESS, amount);
         IPool(AAVE_POOL_ADDRESS).supply(asset, amount, address(this), 0);
-
-        // TODO: Add event
+        emit LiquiditySupplied(amount);
     }
 
     function _aaveWithdraw(uint256 amount) internal {
         totalLendedAmount -= amount;
         IPool(AAVE_POOL_ADDRESS).withdraw(asset, amount, msg.sender);
-
-        // TODO: Add event
+        emit LiquidityWithdrawn(amount);
     }
 }
