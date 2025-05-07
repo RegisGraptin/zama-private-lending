@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: BSD-3-Clause-Clear
-
 pragma solidity ^0.8.24;
 
 import "fhevm/lib/TFHE.sol";
 import "fhevm/config/ZamaFHEVMConfig.sol";
 import "fhevm-contracts/contracts/token/ERC20/ConfidentialERC20Wrapped.sol";
+
+import { SepoliaZamaFHEVMConfig } from "fhevm/config/ZamaFHEVMConfig.sol";
+import { SepoliaZamaGatewayConfig } from "fhevm/config/ZamaGatewayConfig.sol";
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -14,9 +16,11 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
 import { IPool } from "@aave-v3-core/contracts/protocol/pool/Pool.sol";
 import { IPoolAddressesProvider } from "@aave-v3-core/contracts/protocol/configuration/PoolAddressesProvider.sol";
 
+import "hardhat/console.sol";
+
 /// @notice FIXME:
 /// we want to obfuscate the amount, not the user behaviour
-contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
+contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, ConfidentialERC20Wrapped {
     using SafeERC20 for IERC20Metadata;
 
     /// @notice Precision factor for reward computation
@@ -60,20 +64,17 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
     // mapping(address account => bool locked) internal lockedLiquidity;
 
     /// @notice Address of the AAVE Pool Address Provider allowing us to fetch the pool address
-    address public immutable POOL_ADDRESSES_PROVIDER_ADDRESS;
-
-    function _aavePoolAddress() internal view returns (address) {
-        return IPoolAddressesProvider(POOL_ADDRESSES_PROVIDER_ADDRESS).getPool();
-    }
+    address public immutable AAVE_POOL_ADDRESS;
 
     constructor(
-        address _aaveProviderAddress,
+        address _aavePoolAddress,
         address erc20_,
+        address aErc20_,
         uint256 maxDecryptionDelay_
     ) ConfidentialERC20Wrapped(erc20_, maxDecryptionDelay_) {
-        POOL_ADDRESSES_PROVIDER_ADDRESS = _aaveProviderAddress;
+        AAVE_POOL_ADDRESS = _aavePoolAddress;
         asset = erc20_;
-        aAsset = IPool(_aavePoolAddress()).getReserveData(asset).aTokenAddress;
+        aAsset = aErc20_;
 
         // Negative number not managed
         nextRoundDelta = TFHE.asEuint256(INT64_OFFSET);
@@ -83,6 +84,7 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
     function _updateUserRound(address user, uint256 roundId) internal {
         uint256 deltaIndex = _globalRewards[roundId] - _userIndex[user];
         if (deltaIndex > 0) {
+            console.log("Delta computation");
             euint64 userPrincipal = _lendingBalances[user];
 
             euint64 reward = TFHE.div(TFHE.mul(userPrincipal, TFHE.asEuint64(deltaIndex)), PRECISION_FACTOR);
@@ -100,6 +102,7 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
     function updateUser(address user) internal {
         // Lazy update on lending position
         if (_userLastUpdatedRound[user] < currentRound) {
+            console.log("Lazy update");
             // Compute previous reward of the last user round
             _updateUserRound(user, _userLastUpdatedRound[user]);
 
@@ -139,11 +142,7 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
     // lend - block timestamps
 
     function lendToAave(einput eRequestedAmount, bytes calldata inputProof) external {
-        // FIXME: the lending is not effective now
-        // It will be on the next round
-
-        // Update user reward
-        updateUser(msg.sender);
+        updateUser(msg.sender); // Update user reward
 
         euint64 eAmount = TFHE.asEuint64(eRequestedAmount, inputProof);
 
@@ -202,12 +201,15 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
         uint256 requestId = Gateway.requestDecryption(cts, this.executeRound.selector, 0, block.timestamp + 100, false);
     }
 
-    function executeRound(uint256 requestId, uint256 lendingAmout) external onlyGateway {
+    function executeRound(uint256 requestId, uint256 roundAmount) external onlyGateway {
         // Compute and assigned all the rewards
 
         uint256 newReward = IERC20(aAsset).balanceOf(address(this)) - totalLendedAmount;
 
-        uint256 deltaIndex = (newReward * PRECISION_FACTOR) / totalLendedAmount;
+        uint256 deltaIndex = 0;
+        if (totalLendedAmount > 0) {
+            deltaIndex = (newReward * PRECISION_FACTOR) / totalLendedAmount;
+        }
 
         currentRound++;
         _globalRewards[currentRound] = _globalRewards[currentRound - 1] + deltaIndex;
@@ -217,11 +219,11 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
         // Rewards are compound so we need to update the balance
         totalLendedAmount = IERC20(aAsset).balanceOf(address(this));
 
-        if (lendingAmout > INT64_OFFSET) {
+        if (roundAmount > INT64_OFFSET) {
             // Lending action
-            _aaveSupply(lendingAmout - INT64_OFFSET);
+            _aaveSupply(roundAmount - INT64_OFFSET);
         } else {
-            _aaveWithdraw(INT64_OFFSET - lendingAmout);
+            _aaveWithdraw(INT64_OFFSET - roundAmount);
         }
 
         // Reset value for next round
@@ -233,15 +235,15 @@ contract ConfidentialLendingLayer is ConfidentialERC20Wrapped {
 
     function _aaveSupply(uint256 amount) internal {
         totalLendedAmount += amount;
-        IERC20(asset).approve(_aavePoolAddress(), amount);
-        IPool(_aavePoolAddress()).supply(asset, amount, address(this), 0);
+        IERC20(asset).approve(AAVE_POOL_ADDRESS, amount);
+        IPool(AAVE_POOL_ADDRESS).supply(asset, amount, address(this), 0);
 
         // TODO: Add event
     }
 
     function _aaveWithdraw(uint256 amount) internal {
         totalLendedAmount -= amount;
-        IPool(_aavePoolAddress()).withdraw(asset, amount, msg.sender);
+        IPool(AAVE_POOL_ADDRESS).withdraw(asset, amount, msg.sender);
 
         // TODO: Add event
     }
