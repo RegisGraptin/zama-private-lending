@@ -50,11 +50,12 @@ function getChainConfig(chain: keyof typeof chainIds): NetworkUserConfig {
       jsonRpcUrl = "http://localhost:8545";
   }
   return {
-    accounts: {
-      count: 10,
-      mnemonic,
-      path: "m/44'/60'/0'/0",
-    },
+    // accounts: {
+    //   count: 10,
+    //   mnemonic,
+    //   path: "m/44'/60'/0'/0",
+    // },
+    accounts: [process.env.PRIVATE_KEY!],
     chainId: chainIds[chain],
     url: jsonRpcUrl,
   };

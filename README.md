@@ -52,3 +52,68 @@ On each round, we are going to update the lending position of the protocol while
 # Improvment
 
 - Could have created a dedicated ERC20 for the aWrapToken lended.
+
+Forking the aave configuration and customize all of this. With the current template, I do not have too much time to manage all.
+
+# How to use it
+
+## Smart contract
+
+First, you will need to defined some environment variable in the project.
+
+```bash
+cd contracts/
+cp .env.example .env
+```
+
+To compile the smart contract, you will have to install the dependencies and run the compile command with:
+
+```bash
+pnpm install
+pnpm compile
+```
+
+To test, you can run
+
+```bash
+pnpm test
+# Or specific test in our case
+pnpm test test/confidentialLendingLayer/ConfidentialLendingLayer.ts
+```
+
+Finally, to deploy the smart contract on Sepolia, you can run:
+
+```bash
+pnpm deploy-sepolia
+```
+
+Notice for deployment, we are using the following variable defined in the [AAVE documentation](https://github.com/bgd-labs/aave-address-book/blob/main/src/AaveV3Sepolia.sol).
+
+```typescript
+export const AAVE_POOL_ADDRESS = "0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951";
+export const USDC = "0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8";
+export const aUSDC = "0x16dA4541aD1807f4443d92D26044C1147406EB80";
+```
+
+## Frontend
+
+On the frontend side, you will have to defined some variables.
+
+```bash
+cd front
+cp .env.example .env
+```
+
+You will have to install the dependencies with:
+
+```bash
+pnpm install
+```
+
+Then, you can run it locally by using
+
+```bash
+pnpm dev
+```
+
+0x2446c51E4c4B71bA2897a612d640e6EB57061568
