@@ -1,4 +1,5 @@
 onlyBuiltDependencies:
+  - bigint-buffer
   - bufferutil
   - keccak
   - sharp

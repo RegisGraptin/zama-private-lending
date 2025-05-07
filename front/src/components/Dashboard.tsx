@@ -12,7 +12,7 @@ export default function ActionLayer() {
       <div className="p-8">
         <div className="max-w-2xl mx-auto">
           <h1 className="text-3xl font-bold mb-8 text-center">
-            Private DeFi Lending
+            Confidential DeFi Lending
           </h1>
 
           {/* Navigation Tabs */}

@@ -1,8 +1,11 @@
 "use client";
 
+import ConfidentialLendingLayer from "@/abi/ConfidentialLendingLayer.json";
+import { getFHEInstance } from "@/lib/fhe";
+
 import { displayBalance, useAllowance } from "@/utils/hook/token";
 import { useState } from "react";
-import { Address, erc20Abi, formatUnits, getAddress, parseUnits } from "viem";
+import { erc20Abi, getAddress, parseUnits, toHex } from "viem";
 import {
   useAccount,
   useBalance,
@@ -12,7 +15,6 @@ import {
 
 export default function WrapTab() {
   const [wrapAmount, setWrapAmount] = useState("");
-  const [isApproved, setIsApproved] = useState(false);
 
   const [txStep, setTxStep] = useState<
     "idle" | "approving" | "wrapping" | "unwrapping"
@@ -27,25 +29,23 @@ export default function WrapTab() {
     token: getAddress(process.env.NEXT_PUBLIC_ASSET_ADDRESS!),
   });
 
-  const {
-    data: allowance,
-    isLoading: isLoadingAllowance,
-    refetch: refetchAllowance,
-  } = useAllowance(getAddress(process.env.NEXT_PUBLIC_ASSET_ADDRESS!), [
-    userAddress!,
-    getAddress(process.env.NEXT_PUBLIC_CONFIDENTIAL_LAYER_ADDRESS!),
-  ]);
+  const { data: allowance, refetch: refetchAllowance } = useAllowance(
+    getAddress(process.env.NEXT_PUBLIC_ASSET_ADDRESS!),
+    [
+      userAddress!,
+      getAddress(process.env.NEXT_PUBLIC_CONFIDENTIAL_LAYER_ADDRESS!),
+    ]
+  );
 
   const {
     writeContract: writeApproveToken,
     data: txHashApprove,
-    isPending: isApproving,
+    isPending: isPendingAllowance,
   } = useWriteContract();
 
-  const { isSuccess: isTxApproveConfirmed, isLoading: isTxApproveLoading } =
-    useWaitForTransactionReceipt({
-      hash: txHashApprove,
-    });
+  const { isLoading: isTxApproveLoading } = useWaitForTransactionReceipt({
+    hash: txHashApprove,
+  });
 
   const handleApprove = async () => {
     writeApproveToken({
@@ -60,20 +60,35 @@ export default function WrapTab() {
   };
 
   const handleWrap = async () => {
-    if (!isApproved) return;
+    // einput eRequestedAmount, bytes calldata inputProof
 
-    setIsLoading(true);
-    setTxStep("wrapping");
-    try {
-      // Simulate wrap transaction
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      // Reset form after success
-      setWrapAmount("");
-      setIsApproved(false);
-    } finally {
-      setIsLoading(false);
-      setTxStep("idle");
+    // Get the FHE instance
+    console.log("Retrieve FHE Instance");
+    const instance = getFHEInstance();
+
+    if (!instance) {
+      console.log("Instance loading...");
+      return;
     }
+
+    const input = instance.createEncryptedInput(
+      process.env.NEXT_PUBLIC_CONFIDENTIAL_LAYER_ADDRESS!,
+      "" + userAddress
+    );
+
+    // Add the user entry depending of the selected value
+    input.add64(parseUnits(wrapAmount, 6));
+    const encryptedInputs = await input.encrypt();
+
+    writeApproveToken({
+      address: getAddress(process.env.NEXT_PUBLIC_ASSET_ADDRESS!),
+      abi: ConfidentialLendingLayer.abi,
+      functionName: "lendToAave",
+      args: [
+        toHex(encryptedInputs.handles[0]),
+        toHex(encryptedInputs.inputProof),
+      ],
+    });
   };
 
   return (
@@ -95,17 +110,17 @@ export default function WrapTab() {
         />
 
         <div className="flex gap-4">
-          {!isApproved ? (
+          {!allowance || parseUnits(wrapAmount, 6) > allowance ? (
             <button
               onClick={handleApprove}
-              disabled={!wrapAmount || isLoading}
+              disabled={!wrapAmount || isPendingAllowance || isTxApproveLoading}
               className={`flex-1 py-3 rounded-lg font-medium transition-all ${
-                wrapAmount && !isLoading
+                wrapAmount && !isPendingAllowance && !isTxApproveLoading
                   ? "bg-blue-600 hover:bg-blue-700"
                   : "bg-gray-700 cursor-not-allowed"
               }`}
             >
-              {txStep === "approving" ? (
+              {isTxApproveLoading || isPendingAllowance ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="animate-spin">🌀</span>
                   Approving...
