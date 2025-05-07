@@ -1,8 +1,8 @@
 "use client";
 
-import { useAllowance } from "@/utils/hook/token";
+import { displayBalance, useAllowance } from "@/utils/hook/token";
 import { useState } from "react";
-import { Address, erc20Abi, getAddress, parseUnits } from "viem";
+import { Address, erc20Abi, formatUnits, getAddress, parseUnits } from "viem";
 import {
   useAccount,
   useBalance,
@@ -79,6 +79,12 @@ export default function WrapTab() {
   return (
     <>
       <div className="space-y-4">
+        {userBalance && (
+          <p className="text-sm text-gray-400 truncate">
+            Available: {displayBalance(userBalance)} USDC
+          </p>
+        )}
+
         <input
           type="number"
           value={wrapAmount}
