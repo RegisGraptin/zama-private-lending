@@ -1,11 +1,9 @@
+import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { expect } from "chai";
-import { network } from "hardhat";
 
 import { awaitAllDecryptionResults } from "../asyncDecrypt";
 import { createInstance } from "../instance";
-import { reencryptEuint64 } from "../reencrypt";
 import { getSigners, initSigners } from "../signers";
-import { debug } from "../utils";
 import { deployConfidentialLendingLayer } from "./ConfidentialLendingLayer.fixture";
 
 describe("ConfidentialLendingLayer", function () {
@@ -91,5 +89,69 @@ describe("ConfidentialLendingLayer", function () {
     expect(await this.usdc.balanceOf(await this.contractAddress)).to.be.eq(0);
     expect(await this.usdc.balanceOf(await this.aave.getAddress())).to.be.eq(totalAmount);
     expect(await this.aave.balanceOf(await this.contractAddress)).to.be.eq(totalAmount);
+  });
+
+  it("should allocate the rewards", async function () {
+    // Bob - 600_000
+    // Carol - 400_000
+
+    // Bob
+    const bobAddress = await this.signers.bob.getAddress();
+    const bobAmount = 600_000;
+
+    await this.usdc.connect(this.signers.bob).mint(bobAddress, bobAmount);
+    await this.usdc.connect(this.signers.bob).approve(this.contractAddress, bobAmount);
+    await this.contract.connect(this.signers.bob).wrap(bobAmount);
+
+    const bobInput = this.fhevm.createEncryptedInput(this.contractAddress, bobAddress);
+    const bobInputs = await bobInput.add64(bobAmount).encrypt();
+    await this.contract.connect(this.signers.bob).lendToAave(bobInputs.handles[0], bobInputs.inputProof);
+
+    // Carol
+    const carolAddress = await this.signers.carol.getAddress();
+    const carolAmount = 400_000;
+
+    await this.usdc.connect(this.signers.carol).mint(carolAddress, carolAmount);
+    await this.usdc.connect(this.signers.carol).approve(this.contractAddress, carolAmount);
+    await this.contract.connect(this.signers.carol).wrap(carolAmount);
+
+    const carolInput = this.fhevm.createEncryptedInput(this.contractAddress, carolAddress);
+    const carolInputs = await carolInput.add64(carolAmount).encrypt();
+    await this.contract.connect(this.signers.carol).lendToAave(carolInputs.handles[0], carolInputs.inputProof);
+
+    // Execute the round
+    await this.contract.callNextRound();
+    await awaitAllDecryptionResults();
+
+    // Verify allocation
+    expect(await this.usdc.balanceOf(await this.aave.getAddress())).to.be.eq(1_000_000);
+    expect(await this.aave.balanceOf(this.contractAddress)).to.be.eq(1_000_000);
+
+    // Simulate rewards - 10% reward
+    await this.aave.rewards(this.contractAddress, 100_000);
+    await time.increase(3600);
+    await this.contract.callNextRound();
+    await awaitAllDecryptionResults();
+
+    // Bob withdraw the totality
+    const bobTotalAmount = 660_000; // + 60_000;
+    const bobInputWithdraw = this.fhevm.createEncryptedInput(this.contractAddress, bobAddress);
+    const bobInputsWithdraw = await bobInputWithdraw.add64(bobTotalAmount).encrypt();
+    await this.contract
+      .connect(this.signers.bob)
+      .withdrawFromAave(bobInputsWithdraw.handles[0], bobInputsWithdraw.inputProof);
+
+    await time.increase(3600);
+    await this.contract.callNextRound();
+    await awaitAllDecryptionResults();
+
+    expect(await this.aave.balanceOf(this.contractAddress)).to.be.eq(1_100_000 - bobTotalAmount);
+    expect(await this.usdc.balanceOf(this.contractAddress)).to.be.eq(bobTotalAmount);
+
+    // Unwrap bob token
+    await this.contract.connect(this.signers.bob).unwrap(600_000);
+    await awaitAllDecryptionResults();
+
+    expect(await this.usdc.balanceOf(bobAddress)).to.be.eq(600_000);
   });
 });

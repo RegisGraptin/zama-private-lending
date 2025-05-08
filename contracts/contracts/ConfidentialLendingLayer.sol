@@ -108,21 +108,28 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
             // In case of previous withdraw, we want to make sure to have the last remanining reward
             _updateUserRound(user, _userLastUpdatedRound[user]);
 
-            /// Update lending state - Apply deposit
-            _lendingBalances[user] = TFHE.add(_lendingBalances[user], _userNextRoundDeposit[user]);
-            _userNextRoundDeposit[user] = TFHE.asEuint64(0);
+            /// Update lending balance
+            euint64 newLendingBalance = TFHE.add(_lendingBalances[user], _userNextRoundDeposit[user]);
+            newLendingBalance = TFHE.sub(newLendingBalance, _userNextRoundWithdrawal[user]);
+            _lendingBalances[user] = newLendingBalance;
+            TFHE.allowThis(newLendingBalance);
+            TFHE.allow(newLendingBalance, user);
 
-            // Apply withdrawal & update user balance
-            _lendingBalances[user] = TFHE.sub(_lendingBalances[user], _userNextRoundWithdrawal[user]);
-
+            // Update user balance
             euint64 newBalance = TFHE.add(_balances[user], _userNextRoundWithdrawal[user]);
             _balances[user] = newBalance;
             TFHE.allowThis(newBalance);
             TFHE.allow(newBalance, user);
 
-            _userNextRoundWithdrawal[user] = TFHE.asEuint64(0);
+            // Update state
+            euint64 _roundDeposit = TFHE.asEuint64(0);
+            TFHE.allowThis(_roundDeposit);
+            _userNextRoundDeposit[user] = _roundDeposit;
 
-            // Update round index
+            euint64 _roundWithdrawal = TFHE.asEuint64(0);
+            TFHE.allowThis(_roundWithdrawal);
+            _userNextRoundWithdrawal[user] = _roundWithdrawal;
+
             _userLastUpdatedRound[user] = currentRound;
         }
 
@@ -173,6 +180,11 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
         // Update round state
         nextRoundDelta = TFHE.sub(nextRoundDelta, transferValue);
         TFHE.allowThis(nextRoundDelta);
+    }
+
+    function unwrap(uint64 amount) public override {
+        updateUser(msg.sender);
+        super.unwrap(amount);
     }
 
     function callNextRound() external {
@@ -226,7 +238,7 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
 
     function _aaveWithdraw(uint256 amount) internal {
         totalLendedAmount -= amount;
-        IPool(AAVE_POOL_ADDRESS).withdraw(asset, amount, msg.sender);
+        IPool(AAVE_POOL_ADDRESS).withdraw(asset, amount, address(this));
         emit LiquidityWithdrawn(amount);
     }
 }

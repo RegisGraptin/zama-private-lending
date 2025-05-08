@@ -27,4 +27,8 @@ contract AAVEPoolMock is ERC20 {
         IERC20Metadata(asset).safeTransfer(to, amount);
         return amount;
     }
+
+    function rewards(address account, uint256 amount) public {
+        _mint(account, amount);
+    }
 }
