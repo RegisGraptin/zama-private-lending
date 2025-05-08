@@ -206,6 +206,10 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
         super.unwrap(amount);
     }
 
+    function lendingBalanceOf(address account) public view returns (euint64) {
+        return _lendingBalances[account];
+    }
+
     /// @notice Finalizes the current round and initiates execution of aggregated operations.
     /// @dev Calls the Gateway to request decryption of the net amount (supply or withdraw) to be executed on AAVE,
     /// based on all user requests collected during the round.

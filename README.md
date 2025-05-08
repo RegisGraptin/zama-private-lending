@@ -121,6 +121,6 @@ pnpm dev
 
 ## Deployed contract
 
-Deployed `ConfidentialLendingLayer` contract at `0xa5AeaF9a3F6B9E45D8b80E5023Fcdf3bBf3e67Cb`.
+Deployed `ConfidentialLendingLayer` contract at `0x76Cd2680d9caB177DFce7bF7D067C2f8af128E6F`.
 
 > For testing, you can request USDC from AAVE faucet on sepolia.
