@@ -12,12 +12,12 @@
         },
         {
           "internalType": "address",
-          "name": "erc20_",
+          "name": "_erc20",
           "type": "address"
         },
         {
           "internalType": "address",
-          "name": "aErc20_",
+          "name": "_aErc20",
           "type": "address"
         },
         {

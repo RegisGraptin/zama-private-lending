@@ -56,6 +56,12 @@ To unwrap the tokens, the user must ensure there are sufficient available funds 
 
 ## Smart contract
 
+The main smart contract implementation is located at: `./contracts/contracts/ConfidentialLendingLayer.sol`.
+
+A set of example tests can be found at: `./contracts/test/confidentialLendingLayer/`.
+
+## Setup
+
 First, you will need to define some environment variable in the project.
 
 ```bash
@@ -115,6 +121,6 @@ pnpm dev
 
 ## Deployed contract
 
-Deployed `ConfidentialLendingLayer` contract at `0x2446c51E4c4B71bA2897a612d640e6EB57061568`.
+Deployed `ConfidentialLendingLayer` contract at `0xa5AeaF9a3F6B9E45D8b80E5023Fcdf3bBf3e67Cb`.
 
 > For testing, you can request USDC from AAVE faucet on sepolia.
