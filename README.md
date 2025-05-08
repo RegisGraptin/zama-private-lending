@@ -8,11 +8,11 @@ Traditionally, when users supply tokens to AAVE, as USDC, they receive aTokens r
 
 To address this, we introduce a confidentiality layer that enables users to supply liquidity while keeping their balances hidden. User deposits are encrypted and stored privately, and operations are grouped to prevent exposure of individual amounts.
 
-This is achieved by first wrapping the tokens using Zama’s `ConfidentialERC20Wrapped` contract. This contract can wrap any ERC20 token and enables encryption of user balances. Users can unwrap and retrieve their available (i.e., not currently lent) liquidity at any time.
+This is achieved by first wrapping the tokens using Zama’s `ConfidentialERC20Wrapped` contract. This contract can wrap an ERC20 token and enables encryption of user balances. Users can unwrap and retrieve their available (i.e., not currently lent) liquidity at any time.
 
-Once balances are hidden, users can choose to provide liquidity to AAVE by submitting encrypted amounts. However, to sent the amount on AAVE, we require to have the plain-text amount. To bridge this gap without compromising privacy, we employ a batching and iteration mechanism.
+Once balances are hidden, users can choose to provide liquidity to AAVE by submitting encrypted amounts. However, to send the amount on AAVE, we require to have the plain-text amount. To bridge this gap without compromising privacy, we employ a batching and iteration mechanism.
 
-During each iteration, we are grouping the supply/withdrawal operation from all the users. This is done by computing in a variable the amount of token we need to transfer. A positive amount indicates a supply to AAVE, while a negative one indicates a withdrawal. This operation can be executed once we have reached a predefined timestamp. Notice that different mechanisms could have been used as a threshold parameter of users or even a combination of both.
+During each iteration, we are grouping the supply/withdrawal operation from all the users. This is done by computing in a variable the amount of token we need to transfer. A positive amount indicates a supply action to AAVE, while a negative one indicates a withdrawal action. This operation can be executed once we have reached a predefined timestamp. Notice that different mechanisms could have been used as a threshold parameter of users or even a combination of both.
 
 This iteration mechanism preserves user balance confidentiality by only revealing the aggregated operation across multiple users, without exposing any individual user's action.
 
@@ -26,21 +26,21 @@ To unwrap the tokens, the user must ensure there are sufficient available funds 
 
 ## Protocol Limitations
 
-In our current design, we have use a timestamp to wait enough operation. However, it would be maybe more interesting to wait a number of operations and a number of time.
+- In our current design, we have used a timestamp to wait enough user operation. However, it would be maybe more interesting to take into consideration the number of distinct user operation.
 
 - In a case where all participants want to maximize their yield, if all of them provide liquidity, we can then guess that they provide all the liquidity available, meaning all of their tokens. Currently, we do not have incentive mechanism to reward users by providing only a part of their liquidity to protect other user balance.
 
-- In a scenario where a user wants to provide a large amount of liquidity, it could potentially leak their balance. For example, if one user provides one million USDC while others only contribute a thousand, anyone monitoring the amount sent to AAVE could infer the contributor’s identity based on the transaction size. This risk can be mitigated by ensuring a large number of users contribute to provide liquidity, while broken down the liquidity acros multiple rounds. This approach helps obfuscate individual contributions and prevents leakage of user balances. But to work efficiently, it may required incentivise mechanism.
+- In a scenario where a user wants to provide a large amount of liquidity, it could potentially leak their balance. For example, if one user provides one million USDC while others only contribute a thousand, anyone monitoring the amount sent to AAVE could infer the contributor’s identity based on the transaction size. This risk can be mitigated by ensuring a large number of users contribute to provide liquidity, while broken down the liquidity across multiple rounds. This approach helps obfuscate individual contributions and prevents leakage of user balances. But to work efficiently, it may require incentivise mechanism.
 
 - One limitation of the current protocol is that we do not handle situations where AAVE lacks sufficient liquidity. If AAVE does not have enough available liquidity, we must wait until enough liquidity is available before proceeding with the transaction.
 
-- At the moment, our protocol can handle only one ERC20 at a time. One improvment could be to integrate a ERC-1155 approach, allowing multiple token representation.
+- At the moment, our protocol can handle only one ERC20 at a time. One improvement could be to integrate a ERC-1155 approach, allowing multiple token representation in a single contract.
 
 ## Highlights
 
 - Leverage existing solution as `ConfidentialERC20Wrapped`
 - Working protocol with some tests given the time available.
-- Fonctional frontend for wrap/unwrap and lending action.
+- Functional frontend for wrap/unwrap token.
 
 ## Difficulties
 
@@ -52,7 +52,7 @@ In our current design, we have use a timestamp to wait enough operation. However
 
 ## Smart contract
 
-First, you will need to defined some environment variable in the project.
+First, you will need to define some environment variable in the project.
 
 ```bash
 cd contracts/
@@ -66,7 +66,7 @@ pnpm install
 pnpm compile
 ```
 
-To test, you can run
+To test, you can run:
 
 ```bash
 pnpm test
@@ -90,7 +90,7 @@ export const aUSDC = "0x16dA4541aD1807f4443d92D26044C1147406EB80";
 
 ## Frontend
 
-On the frontend side, you will have to defined some variables.
+On the frontend side, you will have to define some variables.
 
 ```bash
 cd front
