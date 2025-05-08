@@ -36,6 +36,8 @@ To unwrap the tokens, the user must ensure there are sufficient available funds 
 
 - At the moment, our protocol can handle only one ERC20 at a time. One improvement could be to integrate a ERC-1155 approach, allowing multiple token representation in a single contract.
 
+- Once a user submits a supply or withdrawal request, it cannot be modified or cancelled within the same round. For example, if a user wants to reduce a previously submitted lending amount, they must wait until the current round is executed and the operation finalized. Changes can only be made in the next round.
+
 ## Highlights
 
 - Leverage existing solution as `ConfidentialERC20Wrapped`
