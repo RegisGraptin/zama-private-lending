@@ -1,28 +1,30 @@
 "use client";
 
 import { useState } from "react";
+import { getAddress, parseUnits } from "viem";
+import { useWaitForTransactionReceipt, useWriteContract } from "wagmi";
+import ConfidentialLendingLayer from "@/abi/ConfidentialLendingLayer.json";
 
 export default function UnWrapTab() {
   const [unwrapAmount, setUnwrapAmount] = useState("");
 
-  const [txStep, setTxStep] = useState<
-    "idle" | "approving" | "wrapping" | "unwrapping"
-  >("idle");
+  // TODO: Read encrypted balance
 
-  const [isLoading, setIsLoading] = useState(false);
+  const { writeContract, data: txHashApprove, isPending } = useWriteContract();
+
+  const { isLoading: isTxLoading } = useWaitForTransactionReceipt({
+    hash: txHashApprove,
+  });
 
   const handleUnwrap = async () => {
-    setIsLoading(true);
-    setTxStep("unwrapping");
-    try {
-      // Simulate unwrap transaction
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      // Reset form after success
-      setUnwrapAmount("");
-    } finally {
-      setIsLoading(false);
-      setTxStep("idle");
-    }
+    writeContract({
+      address: getAddress(process.env.NEXT_PUBLIC_ASSET_ADDRESS!),
+      abi: ConfidentialLendingLayer.abi,
+      functionName: "unwrap",
+      args: [
+        parseUnits(unwrapAmount, 6), // USDC has 6 decimals
+      ],
+    });
   };
 
   return (
@@ -34,19 +36,19 @@ export default function UnWrapTab() {
           onChange={(e) => setUnwrapAmount(e.target.value)}
           placeholder="cUSDC amount to unwrap"
           className="w-full p-3 rounded-lg bg-gray-700 border border-gray-600 focus:outline-none focus:border-blue-500"
-          disabled={isLoading}
+          disabled={isPending}
         />
 
         <button
           onClick={handleUnwrap}
-          disabled={!unwrapAmount || isLoading}
+          disabled={!unwrapAmount || isPending || isTxLoading}
           className={`w-full py-3 rounded-lg font-medium transition-all ${
-            unwrapAmount && !isLoading
+            unwrapAmount && !isPending && !isTxLoading
               ? "bg-blue-600 hover:bg-blue-700"
               : "bg-gray-700 cursor-not-allowed"
           }`}
         >
-          {txStep === "unwrapping" ? (
+          {isPending || isTxLoading ? (
             <span className="flex items-center justify-center gap-2">
               <span className="animate-spin">🌀</span>
               Unwrapping...

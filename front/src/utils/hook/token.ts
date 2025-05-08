@@ -1,6 +1,8 @@
 import { Address, erc20Abi, formatUnits, getAddress } from "viem";
 import { useReadContract } from "wagmi";
 
+import ConfidentialLendingLayer from "@/abi/ConfidentialLendingLayer.json";
+
 export function useAllowance(
   tokenAddress: Address | string | undefined,
   args: [`0x${string}`, `0x${string}`]
@@ -12,6 +14,24 @@ export function useAllowance(
     args,
     query: {
       enabled: !!tokenAddress, // Only enable when address exists
+    },
+  });
+}
+
+export function useEncryptedBalance(
+  tokenAddress: Address | string | undefined,
+  userAccount: Address | string | undefined
+) {
+  // TODO:
+  // https://docs.zama.ai/fhevm/smart-contract/decryption/reencryption
+
+  return useReadContract({
+    address: getAddress(tokenAddress!),
+    abi: ConfidentialLendingLayer.abi,
+    functionName: "balanceOf",
+    args: [userAccount!],
+    query: {
+      enabled: !!tokenAddress && !!userAccount,
     },
   });
 }

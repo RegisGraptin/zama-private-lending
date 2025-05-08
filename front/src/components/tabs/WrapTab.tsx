@@ -16,12 +16,6 @@ import {
 export default function WrapTab() {
   const [wrapAmount, setWrapAmount] = useState("");
 
-  const [txStep, setTxStep] = useState<
-    "idle" | "approving" | "wrapping" | "unwrapping"
-  >("idle");
-
-  const [isLoading, setIsLoading] = useState(false);
-
   const { address: userAddress } = useAccount();
 
   const { data: userBalance } = useBalance({
@@ -37,18 +31,14 @@ export default function WrapTab() {
     ]
   );
 
-  const {
-    writeContract: writeApproveToken,
-    data: txHashApprove,
-    isPending: isPendingAllowance,
-  } = useWriteContract();
+  const { writeContract, data: txHashApprove, isPending } = useWriteContract();
 
-  const { isLoading: isTxApproveLoading } = useWaitForTransactionReceipt({
+  const { isLoading: isTxLoading } = useWaitForTransactionReceipt({
     hash: txHashApprove,
   });
 
   const handleApprove = async () => {
-    writeApproveToken({
+    writeContract({
       address: getAddress(process.env.NEXT_PUBLIC_ASSET_ADDRESS!),
       abi: erc20Abi,
       functionName: "approve",
@@ -80,7 +70,7 @@ export default function WrapTab() {
     input.add64(parseUnits(wrapAmount, 6));
     const encryptedInputs = await input.encrypt();
 
-    writeApproveToken({
+    writeContract({
       address: getAddress(process.env.NEXT_PUBLIC_ASSET_ADDRESS!),
       abi: ConfidentialLendingLayer.abi,
       functionName: "lendToAave",
@@ -106,21 +96,21 @@ export default function WrapTab() {
           onChange={(e) => setWrapAmount(e.target.value)}
           placeholder="USDC amount to wrap"
           className="w-full p-3 rounded-lg bg-gray-700 border border-gray-600 focus:outline-none focus:border-blue-500"
-          disabled={isLoading}
+          disabled={isPending}
         />
 
         <div className="flex gap-4">
           {!allowance || parseUnits(wrapAmount, 6) > allowance ? (
             <button
               onClick={handleApprove}
-              disabled={!wrapAmount || isPendingAllowance || isTxApproveLoading}
+              disabled={!wrapAmount || isPending || isTxLoading}
               className={`flex-1 py-3 rounded-lg font-medium transition-all ${
-                wrapAmount && !isPendingAllowance && !isTxApproveLoading
+                wrapAmount && !isPending && !isTxLoading
                   ? "bg-blue-600 hover:bg-blue-700"
                   : "bg-gray-700 cursor-not-allowed"
               }`}
             >
-              {isTxApproveLoading || isPendingAllowance ? (
+              {isTxLoading || isPending ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="animate-spin">🌀</span>
                   Approving...
@@ -132,14 +122,14 @@ export default function WrapTab() {
           ) : (
             <button
               onClick={handleWrap}
-              disabled={!wrapAmount || isLoading}
+              disabled={!wrapAmount || isPending}
               className={`flex-1 py-3 rounded-lg font-medium transition-all ${
-                wrapAmount && !isLoading
+                wrapAmount && !isPending
                   ? "bg-green-600 hover:bg-green-700"
                   : "bg-gray-700 cursor-not-allowed"
               }`}
             >
-              {txStep === "wrapping" ? (
+              {isTxLoading || isPending ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="animate-spin">🌀</span>
                   Wrapping...
