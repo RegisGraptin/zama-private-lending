@@ -87,6 +87,10 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
         TFHE.allowThis(nextRoundDelta);
     }
 
+    /// @notice Updates a user's balance for a specific round by applying accumulated rewards.
+    /// @dev Calculates the reward delta since the user's last update based on the user’s principal.
+    /// @param user The address of the user whose state is being updated.
+    /// @param roundId The round identifier for which the update is performed.
     function _updateUserRound(address user, uint256 roundId) internal {
         uint256 deltaIndex = _globalRewards[roundId] - _userIndex[user];
         if (deltaIndex > 0) {
@@ -104,6 +108,10 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
         }
     }
 
+    /// @notice Updates the user's position.
+    /// @dev Computes and distributes rewards from previous rounds, and adjusts the user's balance based on
+    /// lending or withdrawal operations executed in the previous round.
+    /// @param user The address of the user whose state is being updated.
     function _updateUser(address user) internal {
         // Lazy update on lending position
         if (_userLastUpdatedRound[user] < currentRound) {
@@ -139,6 +147,10 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
         _updateUserRound(user, currentRound);
     }
 
+    /// @notice Lends wrapped token to AAVE.
+    /// @dev Verify the amount sent and accumulate it for the next round.
+    /// @param eRequestedAmount Encrypted amount of tokens the user wants to lend.
+    /// @param inputProof Cryptographic proof verifying the validity of the encrypted input.
     function lendToAave(einput eRequestedAmount, bytes calldata inputProof) external {
         _updateUser(msg.sender); // Update user reward
 
@@ -165,6 +177,10 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
         TFHE.allowThis(nextRoundDelta);
     }
 
+    /// @notice Requests withdrawal of wrapped tokens from AAVE.
+    /// @dev Verify the amount sent and accumulate it for the next round.
+    /// @param eRequestedAmount Encrypted amount of tokens the user wants to withdraw.
+    /// @param inputProof Cryptographic proof verifying the validity of the encrypted input.
     function withdrawFromAave(einput eRequestedAmount, bytes calldata inputProof) external {
         _updateUser(msg.sender); // Update user reward
 
@@ -190,6 +206,9 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
         super.unwrap(amount);
     }
 
+    /// @notice Finalizes the current round and initiates execution of aggregated operations.
+    /// @dev Calls the Gateway to request decryption of the net amount (supply or withdraw) to be executed on AAVE,
+    /// based on all user requests collected during the round.
     function callNextRound() external {
         if (block.timestamp <= lastUpdateTime + 30 minutes) {
             revert TooEarlyForNextRound();
@@ -203,6 +222,10 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
         Gateway.requestDecryption(cts, this.executeRound.selector, 0, block.timestamp + 100, false);
     }
 
+    /// @notice Executes the current round by performing the net operation on AAVE and updating rewards.
+    /// @dev Based on the decrypted net amount, either supplies or withdraws funds from AAVE.
+    /// Also computes and updates accumulated rewards for participants.
+    /// @param roundAmount The decrypted net amount to supply (if positive) or withdraw (if negative) from AAVE.
     function executeRound(uint256 /* requestId */, uint256 roundAmount) external onlyGateway {
         // Compute and assigned all the rewards
         uint256 newReward = IERC20(aAsset).balanceOf(address(this)) - totalLendedAmount;

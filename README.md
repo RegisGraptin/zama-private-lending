@@ -38,17 +38,19 @@ To unwrap the tokens, the user must ensure there are sufficient available funds 
 
 - Once a user submits a supply or withdrawal request, it cannot be modified or cancelled within the same round. For example, if a user wants to reduce a previously submitted lending amount, they must wait until the current round is executed and the operation finalized. Changes can only be made in the next round.
 
+- On the protocol, we are using `euint64` for encrypted inputs and we have used USDC to conduct some test, which has 6 decimals. However, some tokens available on AAVE could have different decimals. We can notice for example `WETH` which has 18 decimals. Additionally, in some calculation we rely on precision factor, in order to efficiently compute rewards. This introduces a limitation in the current state, as we are limited by using `euint64` which lack sufficient range and precision to support all the ERC20 tokens. To address this issue, we would need to change our number representation and used a larger one such as `euint256`.
+
 ## Highlights
 
 - Leverage existing solution as `ConfidentialERC20Wrapped`
 - Working protocol with some tests given the time available.
-- Functional frontend for wrap/unwrap token.
+- Functional frontend to wrap/unwrap token.
 
 ## Difficulties
 
-- Need more time to think about potential attacks or protocol flow.
-- More tests would be appreciated, especially on the reward distribution to check if we did not miss corner cases.
-- Would be interesting to have a fork test from AAVE and not mock contracts.
+- Need more time to think about potential attacks or protocol flaws.
+- More tests would be appreciated, especially on the reward distribution to check that we haven't missed any corner cases.
+- Would be interesting to have some fork tests from AAVE and not mock contracts.
 
 # How to use it
 
