@@ -17,6 +17,9 @@ import { IPool } from "@aave-v3-core/contracts/protocol/pool/Pool.sol";
 import "hardhat/console.sol";
 
 /// @notice Confidential Lending Layer designed to obfuscate user lending amount.
+/// @dev The system operates as a round system. At each iteration, it aggregates all user supply and withdrawal
+/// requests, computes the net movement, and executes a single net operation on AAVE. This batching mechanism
+/// preserves user privacy by preventing the exposure of individual transaction amounts.
 contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayConfig, ConfidentialERC20Wrapped {
     using SafeERC20 for IERC20Metadata;
 
@@ -71,13 +74,13 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
 
     constructor(
         address _aavePoolAddress,
-        address erc20_,
-        address aErc20_,
+        address _erc20,
+        address _aErc20,
         uint256 maxDecryptionDelay_
-    ) ConfidentialERC20Wrapped(erc20_, maxDecryptionDelay_) {
+    ) ConfidentialERC20Wrapped(_erc20, maxDecryptionDelay_) {
         AAVE_POOL_ADDRESS = _aavePoolAddress;
-        asset = erc20_;
-        aAsset = aErc20_;
+        asset = _erc20;
+        aAsset = _aErc20;
 
         // Scaled as negative number not managed
         nextRoundDelta = TFHE.asEuint256(INT64_OFFSET);
@@ -101,7 +104,7 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
         }
     }
 
-    function updateUser(address user) internal {
+    function _updateUser(address user) internal {
         // Lazy update on lending position
         if (_userLastUpdatedRound[user] < currentRound) {
             // Compute previous reward of the last user round
@@ -137,7 +140,7 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
     }
 
     function lendToAave(einput eRequestedAmount, bytes calldata inputProof) external {
-        updateUser(msg.sender); // Update user reward
+        _updateUser(msg.sender); // Update user reward
 
         euint64 eAmount = TFHE.asEuint64(eRequestedAmount, inputProof);
 
@@ -163,7 +166,7 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
     }
 
     function withdrawFromAave(einput eRequestedAmount, bytes calldata inputProof) external {
-        updateUser(msg.sender); // Update user reward
+        _updateUser(msg.sender); // Update user reward
 
         euint64 eAmount = TFHE.asEuint64(eRequestedAmount, inputProof);
 
@@ -183,7 +186,7 @@ contract ConfidentialLendingLayer is SepoliaZamaFHEVMConfig, SepoliaZamaGatewayC
     }
 
     function unwrap(uint64 amount) public override {
-        updateUser(msg.sender);
+        _updateUser(msg.sender);
         super.unwrap(amount);
     }
 
